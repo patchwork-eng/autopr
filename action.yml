@@ -1,7 +1,7 @@
 name: 'AutoPR'
 description: 'AI-generated pull request descriptions from your diff'
 branding:
-  icon: 'edit-3'
+  icon: 'git-pull-request'
   color: 'purple'
 inputs:
   openai_key:
