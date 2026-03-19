@@ -320,13 +320,13 @@ test('handles empty diff gracefully', async () => {
   expect(mockSetFailed).not.toHaveBeenCalled();
 });
 
-// 12. OpenAI error → setFailed
+// 12. OpenAI error → setFailed (use 400 — client errors do not retry)
 test('fails when OpenAI returns an error', async () => {
   makeInputs();
   mockOctokit.rest.pulls.get
     .mockResolvedValueOnce(makePR())
     .mockResolvedValueOnce(makeDiff(5));
-  mockOpenAIError(500, 'Internal server error');
+  mockOpenAIError(400, 'Bad request');
   await runAction();
   expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('OpenAI API error'));
 });
@@ -461,4 +461,119 @@ test('uses context.payload.repository.private for isPrivate check', async () => 
   await runAction(privateBaseContext);
   // Should fail because context.payload.repository.private = true and no license key
   expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('private repo requires a license key'));
+});
+
+// ── Helper for tests that need fake timers (retry scenarios) ─────────────────
+
+async function runActionWithFakeTimers(githubContextOverride = null) {
+  jest.useFakeTimers();
+  jest.resetModules();
+  const contextToUse = githubContextOverride || defaultGithubContext;
+  jest.mock('@actions/core', () => ({
+    getInput: (...args) => mockGetInput(...args),
+    setFailed: (...args) => mockSetFailed(...args),
+    info: (...args) => mockInfo(...args),
+    warning: (...args) => mockWarning(...args),
+  }));
+  jest.mock('@actions/github', () => ({
+    context: contextToUse,
+    getOctokit: (...args) => mockGetOctokit(...args),
+  }));
+  require('../src/index.js');
+  await jest.runAllTimersAsync();
+  jest.useRealTimers();
+}
+
+// 22. GITHUB_TOKEN missing → setFailed with clear message
+test('setFailed with clear message when GITHUB_TOKEN is missing', async () => {
+  makeInputs();
+  mockOctokit.rest.pulls.get.mockResolvedValue(makePR({ body: '' }));
+  delete process.env.GITHUB_TOKEN;
+  await runAction();
+  expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('GITHUB_TOKEN is not set'));
+});
+
+// 23. PR body starting with "Fixes #123" is treated as meaningful (not a template)
+test('PR body starting with "Fixes #123" is treated as meaningful (not a template)', async () => {
+  makeInputs({ skip_if_body_set: 'true' });
+  mockOctokit.rest.pulls.get.mockResolvedValue(
+    makePR({ body: 'Fixes #123 — resolved the login redirect bug on mobile Safari' })
+  );
+  await runAction();
+  expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('meaningful description'));
+  expect(mockOctokit.rest.pulls.update).not.toHaveBeenCalled();
+});
+
+// 24. Invalid max_diff_lines falls back to 500
+test('invalid max_diff_lines falls back to 500 lines', async () => {
+  makeInputs({ max_diff_lines: 'abc' });
+  const bigDiff = Array.from({ length: 600 }, (_, i) => `+line ${i}`).join('\n');
+  mockOctokit.rest.pulls.get
+    .mockResolvedValueOnce(makePR())
+    .mockResolvedValueOnce({ data: bigDiff });
+  mockOpenAISuccess();
+  mockOctokit.rest.pulls.update.mockResolvedValue({});
+  await runAction();
+  const openaiCall = global.fetch.mock.calls.find(c => c[0].includes('openai'));
+  const body = JSON.parse(openaiCall[1].body);
+  const userMsg = body.messages.find(m => m.role === 'user').content;
+  // Should be truncated at 500 lines (safe fallback), not empty or 0
+  expect(userMsg).toContain('Diff truncated at 500 lines');
+  expect(userMsg).toContain('+line 0');   // first line present
+  expect(userMsg).not.toContain('+line 500'); // line 500+ not present
+});
+
+// 25. OpenAI 503 triggers retry and succeeds on third attempt
+test('OpenAI 503 triggers retry and succeeds on third attempt', async () => {
+  makeInputs();
+  mockOctokit.rest.pulls.get
+    .mockResolvedValueOnce(makePR())
+    .mockResolvedValueOnce(makeDiff(5));
+  global.fetch
+    .mockResolvedValueOnce({ status: 503, ok: false, headers: { get: () => null } })
+    .mockResolvedValueOnce({ status: 503, ok: false, headers: { get: () => null } })
+    .mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({ choices: [{ message: { content: '## Summary\nFixed.' } }] }),
+    });
+  mockOctokit.rest.pulls.update.mockResolvedValue({});
+  await runActionWithFakeTimers();
+  expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('server error 503'));
+  expect(mockOctokit.rest.pulls.update).toHaveBeenCalled();
+  expect(mockSetFailed).not.toHaveBeenCalled();
+});
+
+// 26. AbortError → setFailed with timeout message
+test('AbortError results in setFailed with timeout message', async () => {
+  makeInputs();
+  mockOctokit.rest.pulls.get
+    .mockResolvedValueOnce(makePR())
+    .mockResolvedValueOnce(makeDiff(5));
+  global.fetch.mockRejectedValueOnce(
+    Object.assign(new Error('aborted'), { name: 'AbortError' })
+  );
+  await runAction();
+  expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('timed out'));
+});
+
+// 27. fetchWithRetry exhausts all 3 retries on 429 → final failure
+test('fetchWithRetry exhausts all 3 retries on 429 then calls setFailed', async () => {
+  makeInputs();
+  mockOctokit.rest.pulls.get
+    .mockResolvedValueOnce(makePR())
+    .mockResolvedValueOnce(makeDiff(5));
+  const rateLimitResponse = {
+    status: 429,
+    ok: false,
+    headers: { get: () => '1' },
+    text: async () => 'Rate limit exceeded',
+  };
+  global.fetch
+    .mockResolvedValueOnce(rateLimitResponse)
+    .mockResolvedValueOnce(rateLimitResponse)
+    .mockResolvedValueOnce(rateLimitResponse);
+  await runActionWithFakeTimers();
+  expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('OpenAI API error'));
 });

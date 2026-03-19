@@ -31840,13 +31840,17 @@ const fs = __nccwpck_require__(9896);
 
 const WORKER_URL = 'https://api.difflog.io/validate-autopr';
 
-// Fix 3: OpenAI retry on 429 with exponential backoff
+// Fix 3: OpenAI retry on 429 and 5xx with exponential backoff
 async function fetchWithRetry(url, options, maxRetries = 3) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const res = await fetch(url, options);
-    if (res.status === 429 && attempt < maxRetries) {
-      const retryAfter = parseInt(res.headers.get('retry-after') || '10', 10);
-      core.warning(`AutoPR: OpenAI rate limited. Retrying in ${retryAfter}s (attempt ${attempt}/${maxRetries})...`);
+    const shouldRetry = (res.status === 429 || res.status >= 500) && attempt < maxRetries;
+    if (shouldRetry) {
+      const retryAfter = res.status === 429
+        ? parseInt(res.headers.get('retry-after') || '10', 10)
+        : Math.pow(2, attempt); // exponential: 2s, 4s
+      const label = res.status === 429 ? 'rate limited' : `server error ${res.status}`;
+      core.warning(`AutoPR: OpenAI ${label}. Retrying in ${retryAfter}s (attempt ${attempt}/${maxRetries})...`);
       await new Promise(r => setTimeout(r, retryAfter * 1000));
       continue;
     }
@@ -31858,7 +31862,7 @@ async function fetchWithRetry(url, options, maxRetries = 3) {
 const bodyIsMeaningful = (body) => {
   if (!body || body.trim().length <= 30) return false;
   // Skip if body is just template placeholders
-  const templateMarkers = ['## describe your changes', '## what type of pr', '<!-- ', '**type of change**', 'closes #', 'fixes #'];
+  const templateMarkers = ['## describe your changes', '## what type of pr', '<!-- ', '**type of change**'];
   const lower = body.toLowerCase().trim();
   const isOnlyTemplate = templateMarkers.some(m => lower.startsWith(m)) || lower.split('\n').every(l => l.startsWith('#') || l.startsWith('<!--') || l.trim() === '');
   return !isOnlyTemplate;
@@ -31870,6 +31874,7 @@ async function run() {
     const licenseKey = core.getInput('license_key') || '';
     const model = core.getInput('model') || 'gpt-4o-mini';
     const maxDiffLines = parseInt(core.getInput('max_diff_lines') || '500', 10);
+    const safeDiffLines = (isNaN(maxDiffLines) || maxDiffLines <= 0) ? 500 : maxDiffLines;
     const skipIfBodySet = core.getInput('skip_if_body_set') !== 'false';
     const template = core.getInput('template') || '';
 
@@ -31939,9 +31944,9 @@ async function run() {
 
     // Truncate diff
     const diffLines = String(diff).split('\n');
-    let diffText = diffLines.slice(0, maxDiffLines).join('\n');
-    if (diffLines.length > maxDiffLines) {
-      diffText += `\n\n[Diff truncated at ${maxDiffLines} lines — this is a large PR. Consider splitting.]`;
+    let diffText = diffLines.slice(0, safeDiffLines).join('\n');
+    if (diffLines.length > safeDiffLines) {
+      diffText += `\n\n[Diff truncated at ${safeDiffLines} lines — this is a large PR. Consider splitting.]`;
     }
 
     // Fix 6: Strip binary file lines — they waste tokens and confuse GPT
