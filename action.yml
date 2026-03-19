@@ -1,0 +1,33 @@
+name: 'AutoPR'
+description: 'AI-generated pull request descriptions from your diff'
+branding:
+  icon: 'edit-3'
+  color: 'purple'
+inputs:
+  openai_key:
+    description: 'OpenAI API key'
+    required: true
+  license_key:
+    description: 'AutoPR license key (required for private repos)'
+    required: false
+    default: ''
+  model:
+    description: 'OpenAI model to use'
+    required: false
+    default: 'gpt-4o-mini'
+  max_diff_lines:
+    description: 'Max lines of diff to send to OpenAI'
+    required: false
+    default: '500'
+  skip_if_body_set:
+    description: "Skip if PR already has a description (length > 30 chars)"
+    required: false
+    default: 'true'
+  template:
+    description: 'Path to a PR description template file in the repo'
+    required: false
+    default: ''
+outputs: {}
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

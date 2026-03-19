@@ -1,0 +1,16 @@
+name: AutoPR
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  autopr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: patchwork-eng/autopr@v1
+        with:
+          openai_key: ${{ secrets.OPENAI_KEY }}
+          # license_key: ${{ secrets.AUTOPR_LICENSE_KEY }}  # Required for private repos
