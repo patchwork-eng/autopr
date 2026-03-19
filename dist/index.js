@@ -31856,6 +31856,7 @@ async function fetchWithRetry(url, options, maxRetries = 3) {
     }
     return res;
   }
+  throw new Error('fetchWithRetry: exhausted all retries without returning a response');
 }
 
 // Fix 5: Detect if PR body is just a template placeholder
