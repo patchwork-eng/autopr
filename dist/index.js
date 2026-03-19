@@ -31922,11 +31922,15 @@ async function run() {
       }
       // Validate license
       try {
+        const validateController = new AbortController();
+        const validateTimeout = setTimeout(() => validateController.abort(), 10000);
         const validateRes = await fetch(WORKER_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ license_key: licenseKey, repo: `${owner}/${repo}` })
+          body: JSON.stringify({ license_key: licenseKey, repo: `${owner}/${repo}` }),
+          signal: validateController.signal
         });
+        clearTimeout(validateTimeout);
         const validateData = await validateRes.json();
         if (!validateData.valid) {
           core.setFailed(`AutoPR: invalid license key. ${validateData.message || ''}`);
