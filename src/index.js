@@ -1,7 +1,32 @@
 const core = require('@actions/core');
 const github = require('@actions/github');
+const fs = require('fs');
 
 const WORKER_URL = 'https://api.difflog.io/validate-autopr';
+
+// Fix 3: OpenAI retry on 429 with exponential backoff
+async function fetchWithRetry(url, options, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, options);
+    if (res.status === 429 && attempt < maxRetries) {
+      const retryAfter = parseInt(res.headers.get('retry-after') || '10', 10);
+      core.warning(`AutoPR: OpenAI rate limited. Retrying in ${retryAfter}s (attempt ${attempt}/${maxRetries})...`);
+      await new Promise(r => setTimeout(r, retryAfter * 1000));
+      continue;
+    }
+    return res;
+  }
+}
+
+// Fix 5: Detect if PR body is just a template placeholder
+const bodyIsMeaningful = (body) => {
+  if (!body || body.trim().length <= 30) return false;
+  // Skip if body is just template placeholders
+  const templateMarkers = ['## describe your changes', '## what type of pr', '<!-- ', '**type of change**', 'closes #', 'fixes #'];
+  const lower = body.toLowerCase().trim();
+  const isOnlyTemplate = templateMarkers.some(m => lower.startsWith(m)) || lower.split('\n').every(l => l.startsWith('#') || l.startsWith('<!--') || l.trim() === '');
+  return !isOnlyTemplate;
+};
 
 async function run() {
   try {
@@ -21,19 +46,28 @@ async function run() {
       return;
     }
 
+    // Fix 1: Skip fork PRs — GITHUB_TOKEN is read-only for cross-repo PRs
+    const prPayload = context.payload.pull_request;
+    const headFullName = prPayload?.head?.repo?.full_name;
+    const baseFullName = prPayload?.base?.repo?.full_name;
+    if (headFullName && baseFullName && headFullName !== baseFullName) {
+      core.info('AutoPR: PR is from a fork — skipping (GITHUB_TOKEN is read-only for fork PRs).');
+      return;
+    }
+
     const octokit = github.getOctokit(process.env.GITHUB_TOKEN);
 
     // Get the PR
     const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: pullNumber });
 
-    // Skip if body already set
-    if (skipIfBodySet && pr.body && pr.body.trim().length > 30) {
-      core.info('PR already has a description. Skipping (skip_if_body_set=true).');
+    // Fix 5: Skip if body already set and meaningful
+    if (skipIfBodySet && bodyIsMeaningful(pr.body)) {
+      core.info('PR already has a meaningful description. Skipping (skip_if_body_set=true).');
       return;
     }
 
-    // Check if repo is private — if so, validate license
-    const isPrivate = pr.head.repo?.private ?? false;
+    // Fix 2: Check if repo is private using context.payload.repository (the base repo)
+    const isPrivate = context.payload.repository?.private ?? pr.base?.repo?.private ?? false;
     if (isPrivate) {
       if (!licenseKey) {
         core.setFailed('AutoPR: private repo requires a license key. Get one at autopr.dev');
@@ -64,18 +98,18 @@ async function run() {
 
     // Truncate diff
     const diffLines = String(diff).split('\n');
-    let truncated = false;
     let diffText = diffLines.slice(0, maxDiffLines).join('\n');
     if (diffLines.length > maxDiffLines) {
-      truncated = true;
       diffText += `\n\n[Diff truncated at ${maxDiffLines} lines — this is a large PR. Consider splitting.]`;
     }
+
+    // Fix 6: Strip binary file lines — they waste tokens and confuse GPT
+    diffText = diffText.split('\n').filter(line => !line.startsWith('Binary files')).join('\n');
 
     // Load template if provided
     let templateContent = '';
     if (template) {
       try {
-        const fs = require('fs');
         templateContent = fs.readFileSync(template, 'utf8');
       } catch (e) {
         core.warning(`AutoPR: could not read template file ${template}: ${e.message}`);
@@ -116,23 +150,39 @@ ${templateContent ? `\nUse this PR template as a guide for structure:\n${templat
 
     const userPrompt = `PR title: ${pr.title}\n\nDiff:\n${diffText}`;
 
-    // Call OpenAI
-    const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openaiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
-        ],
-        max_tokens: 1000,
-        temperature: 0.3
-      })
-    });
+    // Fix 9: AbortController with 30s timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    let openaiRes;
+    try {
+      // Fix 3: Use fetchWithRetry; Fix 9: pass signal for timeout
+      openaiRes = await fetchWithRetry('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openaiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          max_tokens: 1500, // Fix 4: increased from 1000
+          temperature: 0.3
+        }),
+        signal: controller.signal
+      }, 3);
+      clearTimeout(timeoutId);
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        core.setFailed('AutoPR: OpenAI request timed out after 30s.');
+        return;
+      }
+      throw err;
+    }
 
     if (!openaiRes.ok) {
       const err = await openaiRes.text();

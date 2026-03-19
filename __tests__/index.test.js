@@ -30,11 +30,21 @@ const mockOctokit = {
 
 const mockGetOctokit = jest.fn(() => mockOctokit);
 
-jest.mock('@actions/github', () => ({
-  context: {
-    repo: { owner: 'test-owner', repo: 'test-repo' },
-    payload: { pull_request: { number: 42 } },
+// Default github context (non-fork, public repo)
+const defaultGithubContext = {
+  repo: { owner: 'test-owner', repo: 'test-repo' },
+  payload: {
+    pull_request: {
+      number: 42,
+      head: { repo: { full_name: 'test-owner/test-repo' } },
+      base: { repo: { full_name: 'test-owner/test-repo' } },
+    },
+    repository: { private: false },
   },
+};
+
+jest.mock('@actions/github', () => ({
+  context: defaultGithubContext,
   getOctokit: (...args) => mockGetOctokit(...args),
 }));
 
@@ -63,7 +73,8 @@ function makePR({ body = '', isPrivate = false } = {}) {
       number: 42,
       title: 'feat: add new widget',
       body,
-      head: { repo: { private: isPrivate } },
+      head: { repo: { full_name: 'test-owner/test-repo' } },
+      base: { repo: { private: isPrivate, full_name: 'test-owner/test-repo' } },
     },
   };
 }
@@ -77,6 +88,8 @@ function makeDiff(lines = 10) {
 function mockOpenAISuccess(content = '## Summary\nDid stuff.') {
   global.fetch.mockResolvedValueOnce({
     ok: true,
+    status: 200,
+    headers: { get: () => null },
     json: async () => ({ choices: [{ message: { content } }] }),
   });
 }
@@ -84,6 +97,8 @@ function mockOpenAISuccess(content = '## Summary\nDid stuff.') {
 function mockOpenAIError(status = 500, text = 'Internal error') {
   global.fetch.mockResolvedValueOnce({
     ok: false,
+    status,
+    headers: { get: () => null },
     text: async () => text,
   });
 }
@@ -96,8 +111,9 @@ beforeEach(() => {
 });
 
 // Helper: load and re-execute index.js fresh each test
-async function runAction() {
+async function runAction(githubContextOverride = null) {
   jest.resetModules();
+  const contextToUse = githubContextOverride || defaultGithubContext;
   // Re-apply mocks after resetModules
   jest.mock('@actions/core', () => ({
     getInput: (...args) => mockGetInput(...args),
@@ -106,10 +122,7 @@ async function runAction() {
     warning: (...args) => mockWarning(...args),
   }));
   jest.mock('@actions/github', () => ({
-    context: {
-      repo: { owner: 'test-owner', repo: 'test-repo' },
-      payload: { pull_request: { number: 42 } },
-    },
+    context: contextToUse,
     getOctokit: (...args) => mockGetOctokit(...args),
   }));
   const mod = require('../src/index.js');
@@ -120,9 +133,9 @@ async function runAction() {
 // 1. skip_if_body_set: true + PR has long body → skip
 test('skips PR update when body already set and skip_if_body_set=true', async () => {
   makeInputs({ skip_if_body_set: 'true' });
-  mockOctokit.rest.pulls.get.mockResolvedValue(makePR({ body: 'This is an existing PR body that is long enough to skip.' }));
+  mockOctokit.rest.pulls.get.mockResolvedValue(makePR({ body: 'This is a real, meaningful description that clearly explains the change in detail.' }));
   await runAction();
-  expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('already has a description'));
+  expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('meaningful description'));
   expect(mockOctokit.rest.pulls.update).not.toHaveBeenCalled();
 });
 
@@ -142,7 +155,20 @@ test('does not skip when existing body is short', async () => {
 test('does not skip when skip_if_body_set=false even with long body', async () => {
   makeInputs({ skip_if_body_set: 'false' });
   mockOctokit.rest.pulls.get
-    .mockResolvedValueOnce(makePR({ body: 'This is an existing PR body that is long enough.' }))
+    .mockResolvedValueOnce(makePR({ body: 'This is a real, meaningful description that is definitely long enough to qualify.' }))
+    .mockResolvedValueOnce(makeDiff(5));
+  mockOpenAISuccess();
+  mockOctokit.rest.pulls.update.mockResolvedValue({});
+  await runAction();
+  expect(mockOctokit.rest.pulls.update).toHaveBeenCalled();
+});
+
+// 3b. skip_if_body_set: true + body looks like a template → don't skip
+test('does not skip when body is a PR template placeholder', async () => {
+  makeInputs({ skip_if_body_set: 'true' });
+  const templateBody = '## Describe your changes\n\n## What type of PR is this?\n\n## Checklist\n';
+  mockOctokit.rest.pulls.get
+    .mockResolvedValueOnce(makePR({ body: templateBody }))
     .mockResolvedValueOnce(makeDiff(5));
   mockOpenAISuccess();
   mockOctokit.rest.pulls.update.mockResolvedValue({});
@@ -183,8 +209,16 @@ test('does not truncate diff within max_diff_lines', async () => {
 // 6. private repo without license key → setFailed
 test('fails on private repo without license key', async () => {
   makeInputs({ license_key: '' });
+  // context.payload.repository.private = true triggers the check
+  const privateContext = {
+    ...defaultGithubContext,
+    payload: {
+      ...defaultGithubContext.payload,
+      repository: { private: true },
+    },
+  };
   mockOctokit.rest.pulls.get.mockResolvedValue(makePR({ isPrivate: true }));
-  await runAction();
+  await runAction(privateContext);
   expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('private repo requires a license key'));
   expect(mockOctokit.rest.pulls.update).not.toHaveBeenCalled();
 });
@@ -192,17 +226,26 @@ test('fails on private repo without license key', async () => {
 // 7. private repo with valid license key → proceeds
 test('proceeds on private repo with valid license key', async () => {
   makeInputs({ license_key: 'autopr_validkey123' });
+  const privateContext = {
+    ...defaultGithubContext,
+    payload: {
+      ...defaultGithubContext.payload,
+      repository: { private: true },
+    },
+  };
   mockOctokit.rest.pulls.get
     .mockResolvedValueOnce(makePR({ isPrivate: true }))
     .mockResolvedValueOnce(makeDiff(5));
   // License validation call
   global.fetch.mockResolvedValueOnce({
     ok: true,
+    status: 200,
+    headers: { get: () => null },
     json: async () => ({ valid: true }),
   });
   mockOpenAISuccess();
   mockOctokit.rest.pulls.update.mockResolvedValue({});
-  await runAction();
+  await runAction(privateContext);
   expect(mockSetFailed).not.toHaveBeenCalled();
   expect(mockOctokit.rest.pulls.update).toHaveBeenCalled();
 });
@@ -210,12 +253,21 @@ test('proceeds on private repo with valid license key', async () => {
 // 8. private repo with invalid license key → setFailed
 test('fails on private repo with invalid license key', async () => {
   makeInputs({ license_key: 'autopr_badkey' });
+  const privateContext = {
+    ...defaultGithubContext,
+    payload: {
+      ...defaultGithubContext.payload,
+      repository: { private: true },
+    },
+  };
   mockOctokit.rest.pulls.get.mockResolvedValue(makePR({ isPrivate: true }));
   global.fetch.mockResolvedValueOnce({
     ok: true,
+    status: 200,
+    headers: { get: () => null },
     json: async () => ({ valid: false, message: 'License not found.' }),
   });
-  await runAction();
+  await runAction(privateContext);
   expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('invalid license key'));
 });
 
@@ -237,13 +289,20 @@ test('public repo without license key skips validation entirely', async () => {
 // 10. license validation network failure → fail-open (warning, not error)
 test('continues fail-open when license validation network fails', async () => {
   makeInputs({ license_key: 'autopr_somekey' });
+  const privateContext = {
+    ...defaultGithubContext,
+    payload: {
+      ...defaultGithubContext.payload,
+      repository: { private: true },
+    },
+  };
   mockOctokit.rest.pulls.get
     .mockResolvedValueOnce(makePR({ isPrivate: true }))
     .mockResolvedValueOnce(makeDiff(5));
   global.fetch.mockRejectedValueOnce(new Error('Network timeout'));
   mockOpenAISuccess();
   mockOctokit.rest.pulls.update.mockResolvedValue({});
-  await runAction();
+  await runAction(privateContext);
   expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('license validation failed'));
   expect(mockOctokit.rest.pulls.update).toHaveBeenCalled();
 });
@@ -280,6 +339,8 @@ test('fails when OpenAI returns empty content', async () => {
     .mockResolvedValueOnce(makeDiff(5));
   global.fetch.mockResolvedValueOnce({
     ok: true,
+    status: 200,
+    headers: { get: () => null },
     json: async () => ({ choices: [{ message: { content: '' } }] }),
   });
   await runAction();
@@ -322,15 +383,12 @@ test('warns and continues when template file is missing', async () => {
 
 // 16. no pull_request in context → skip with info
 test('skips gracefully when no pull request in context', async () => {
-  jest.mock('@actions/github', () => ({
-    context: {
-      repo: { owner: 'test-owner', repo: 'test-repo' },
-      payload: {},  // no pull_request
-    },
-    getOctokit: (...args) => mockGetOctokit(...args),
-  }));
+  const noprContext = {
+    repo: { owner: 'test-owner', repo: 'test-repo' },
+    payload: {},  // no pull_request
+  };
   makeInputs();
-  await runAction();
+  await runAction(noprContext);
   expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('No pull request'));
   expect(mockOctokit.rest.pulls.update).not.toHaveBeenCalled();
 });
@@ -347,4 +405,60 @@ test('appends AutoPR footer to generated description', async () => {
   const updateCall = mockOctokit.rest.pulls.update.mock.calls[0][0];
   expect(updateCall.body).toContain('Generated by [AutoPR]');
   expect(updateCall.body).toContain('autopr.dev');
+});
+
+// 18. Fork PR → skips with info message (Fix 1)
+test('skips when PR is from a forked repo', async () => {
+  const forkContext = {
+    repo: { owner: 'test-owner', repo: 'test-repo' },
+    payload: {
+      pull_request: {
+        number: 42,
+        head: { repo: { full_name: 'contributor/test-repo' } },
+        base: { repo: { full_name: 'test-owner/test-repo' } },
+      },
+      repository: { private: false },
+    },
+  };
+  makeInputs();
+  await runAction(forkContext);
+  expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('PR is from a fork'));
+  expect(mockOctokit.rest.pulls.update).not.toHaveBeenCalled();
+});
+
+// 19. Binary file lines stripped from diff (Fix 6)
+test('strips binary file lines from diff before sending to OpenAI', async () => {
+  makeInputs();
+  const diffWithBinary = '+line 1\nBinary files a/image.png and b/image.png differ\n+line 2\nBinary files a/doc.pdf and b/doc.pdf differ\n+line 3';
+  mockOctokit.rest.pulls.get
+    .mockResolvedValueOnce(makePR())
+    .mockResolvedValueOnce({ data: diffWithBinary });
+  mockOpenAISuccess();
+  mockOctokit.rest.pulls.update.mockResolvedValue({});
+  await runAction();
+  const openaiCall = global.fetch.mock.calls.find(c => c[0].includes('openai'));
+  const body = JSON.parse(openaiCall[1].body);
+  const userMsg = body.messages.find(m => m.role === 'user').content;
+  expect(userMsg).not.toContain('Binary files');
+  expect(userMsg).toContain('+line 1');
+  expect(userMsg).toContain('+line 3');
+});
+
+// 20. isPrivate check uses context.payload.repository.private (Fix 2)
+test('uses context.payload.repository.private for isPrivate check', async () => {
+  makeInputs({ license_key: '' });
+  // Simulate: context says repo is private, but PR head repo says public
+  // The fix ensures we use context.payload.repository.private
+  const privateBaseContext = {
+    ...defaultGithubContext,
+    payload: {
+      ...defaultGithubContext.payload,
+      repository: { private: true },  // base repo is private
+    },
+  };
+  // PR head says public (old buggy behavior would use this)
+  mockOctokit.rest.pulls.get.mockResolvedValue(makePR({ isPrivate: false }));
+  await runAction(privateBaseContext);
+  // Should fail because context.payload.repository.private = true and no license key
+  expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('private repo requires a license key'));
 });
