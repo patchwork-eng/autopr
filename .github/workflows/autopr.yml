@@ -1,4 +1,4 @@
-name: AutoPR
+name: AutoPR (dogfood)
 on:
   pull_request:
     types: [opened, synchronize]
@@ -10,7 +10,10 @@ jobs:
   autopr:
     runs-on: ubuntu-latest
     steps:
-      - uses: patchwork-eng/autopr@v1
+      - uses: actions/checkout@v4
+      - uses: ./
         with:
           openai_key: ${{ secrets.OPENAI_KEY }}
           # license_key: ${{ secrets.AUTOPR_LICENSE_KEY }}  # Required for private repos
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
