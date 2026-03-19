@@ -31875,7 +31875,7 @@ async function run() {
     const licenseKey = core.getInput('license_key') || '';
     const model = core.getInput('model') || 'gpt-4o-mini';
     const maxDiffLines = parseInt(core.getInput('max_diff_lines') || '500', 10);
-    const safeDiffLines = (isNaN(maxDiffLines) || maxDiffLines <= 0) ? 500 : maxDiffLines;
+    const safeDiffLines = (isNaN(maxDiffLines) || maxDiffLines <= 0) ? 500 : Math.min(maxDiffLines, 2000);
     const skipIfBodySet = core.getInput('skip_if_body_set') !== 'false';
     const template = core.getInput('template') || '';
 
@@ -31965,7 +31965,8 @@ async function run() {
     let templateContent = '';
     if (template) {
       try {
-        templateContent = fs.readFileSync(template, 'utf8');
+        const raw = fs.readFileSync(template, 'utf8');
+        templateContent = raw.length > 4000 ? raw.slice(0, 4000) + '\n[Template truncated]' : raw;
       } catch (e) {
         core.warning(`AutoPR: could not read template file ${template}: ${e.message}`);
       }
