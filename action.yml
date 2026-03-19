@@ -1,4 +1,4 @@
-name: 'AutoPR'
+name: 'AutoPR — PR Descriptions'
 description: 'AI-generated pull request descriptions from your diff'
 branding:
   icon: 'git-pull-request'
