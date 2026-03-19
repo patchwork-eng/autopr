@@ -42,10 +42,9 @@ When a pull request is opened or updated, AutoPR:
 3. Writes the generated description back to the PR
 
 The generated description includes:
-- **Summary** — what changed and why
-- **Changes** — grouped by breaking changes, features, fixes, refactors, chores
-- **Testing notes** — what reviewers should verify
-- **Affected areas** — which modules were touched
+- **Summary** — what the problem was and what this PR does about it
+- **What changed and why** — decisions and intent, grouped by purpose
+- **Testing notes** — specific flows and edge cases for reviewers to verify
 
 ---
 
@@ -68,7 +67,7 @@ The generated description includes:
 |---|---|---|
 | **Free** | $0 | Public repos, unlimited |
 | **Indie** | $9/mo | Private repos, 1 user |
-| **Teams** | $19/mo | Private repos, unlimited team members |
+| **Teams** | $29/mo | Private repos, unlimited team members |
 
 Get a license key at **[autopr.dev](https://autopr.dev)**.
 
@@ -94,9 +93,9 @@ You can provide a custom PR template to guide the output format:
 - uses: patchwork-eng/autopr@v1
   with:
     openai_key: ${{ secrets.OPENAI_KEY }}
+    template: .github/PULL_REQUEST_TEMPLATE.md
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    template: .github/PULL_REQUEST_TEMPLATE.md
 ```
 
 AutoPR will use your template as a structural guide while still generating the content from the diff.
