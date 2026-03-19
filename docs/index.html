@@ -402,10 +402,169 @@
       color: var(--text-muted);
     }
 
+    /* ── Before / After Demo ── */
+    .demo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-top: 48px;
+      align-items: start;
+    }
+    .demo-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .demo-panel-label {
+      font-family: "SF Mono", "Fira Code", Consolas, monospace;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+      display: inline-block;
+      align-self: flex-start;
+    }
+    .demo-label-before {
+      background: rgba(248,81,73,0.12);
+      color: #f85149;
+      border: 1px solid rgba(248,81,73,0.3);
+    }
+    .demo-label-after {
+      background: rgba(56,211,159,0.12);
+      color: #3fb950;
+      border: 1px solid rgba(56,211,159,0.3);
+    }
+    .demo-pr-box {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .demo-before .demo-pr-box {
+      border-color: rgba(248,81,73,0.2);
+    }
+    .demo-after .demo-pr-box {
+      border-color: rgba(56,211,159,0.25);
+    }
+    .demo-pr-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-2);
+    }
+    .demo-pr-title {
+      font-family: "SF Mono", "Fira Code", Consolas, monospace;
+      font-size: 13px;
+      color: var(--accent-light);
+      font-weight: 600;
+    }
+    .demo-pr-meta {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .demo-pr-body {
+      padding: 20px;
+      min-height: 80px;
+    }
+    .demo-body-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 120px;
+    }
+    .demo-empty-text {
+      font-size: 14px;
+      color: #484f58;
+      font-style: italic;
+    }
+    .demo-body-filled {
+      padding: 20px;
+    }
+    .demo-md {
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--text);
+    }
+    .demo-md-h2 {
+      font-family: "SF Mono", "Fira Code", Consolas, monospace;
+      font-size: 12px;
+      font-weight: 700;
+      color: #e6edf3;
+      margin: 14px 0 6px;
+      letter-spacing: 0.3px;
+    }
+    .demo-md-h2:first-child { margin-top: 0; }
+    .demo-md-p {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.65;
+      margin-bottom: 4px;
+    }
+    .demo-md-code code {
+      font-size: 12px;
+    }
+    .demo-md-list {
+      list-style: none;
+      padding-left: 4px;
+      margin: 0;
+    }
+    .demo-md-list > li {
+      color: var(--text);
+      font-size: 13px;
+      margin-bottom: 6px;
+      padding-left: 12px;
+      position: relative;
+    }
+    .demo-md-list > li::before {
+      content: '•';
+      position: absolute;
+      left: 0;
+      color: var(--text-muted);
+    }
+    .demo-md-list ul {
+      list-style: none;
+      padding-left: 12px;
+      margin-top: 4px;
+    }
+    .demo-md-list ul li {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+      padding-left: 12px;
+      position: relative;
+    }
+    .demo-md-list ul li::before {
+      content: '–';
+      position: absolute;
+      left: 0;
+      color: #484f58;
+    }
+    .demo-md code {
+      font-family: "SF Mono", "Fira Code", Consolas, monospace;
+      font-size: 11px;
+      background: var(--bg-3);
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--accent-light);
+    }
+    .demo-caption {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      padding: 0 4px;
+    }
+    .demo-before .demo-caption { color: #6e4040; }
+    .demo-after .demo-caption { color: #2d5a3d; }
+
     @media (max-width: 600px) {
       .steps { grid-template-columns: 1fr; }
       .features-list { grid-template-columns: 1fr; }
       .pricing-grid { grid-template-columns: 1fr; }
+      .demo-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -429,7 +588,7 @@
 <section class="hero">
   <div class="container">
     <h1>Your PR descriptions,<br><em>written. Every time.</em></h1>
-    <p>AutoPR reads your diff when a pull request opens and writes the description for you — what changed, what to test, what broke. Your reviewers get context. You get your time back.</p>
+    <p>AutoPR writes your pull request description the moment you open it — so reviewers know what to look at before they read a line of code.</p>
     <a href="#install" class="btn">Add to your repo →</a>
     <p class="trust-line">You bring your own OpenAI key. We never see your diff.</p>
   </div>
@@ -456,6 +615,72 @@
         <p class="step-num">Step 03</p>
         <h3>Description written</h3>
         <p>The PR body is updated with a clear, structured description: summary, what changed, testing notes, and any breaking changes flagged.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Before / After Demo -->
+<section id="demo">
+  <div class="container">
+    <p class="section-label">See the difference</p>
+    <h2>The difference a description makes</h2>
+    <p class="section-desc">Reviewers shouldn't have to guess what changed.</p>
+    <div class="demo-grid">
+      <!-- BEFORE -->
+      <div class="demo-panel demo-before">
+        <div class="demo-panel-label demo-label-before">Before AutoPR</div>
+        <div class="demo-pr-box">
+          <div class="demo-pr-header">
+            <span class="demo-pr-title">fix auth bug</span>
+            <span class="demo-pr-meta">opened 2 minutes ago</span>
+          </div>
+          <div class="demo-pr-body demo-body-empty">
+            <span class="demo-empty-text">(No description provided)</span>
+          </div>
+        </div>
+        <p class="demo-caption">Reviewers open the diff cold. No context. No idea what to focus on.</p>
+      </div>
+
+      <!-- AFTER -->
+      <div class="demo-panel demo-after">
+        <div class="demo-panel-label demo-label-after">After AutoPR ✓</div>
+        <div class="demo-pr-box">
+          <div class="demo-pr-header">
+            <span class="demo-pr-title">fix auth bug</span>
+            <span class="demo-pr-meta">opened 2 minutes ago</span>
+          </div>
+          <div class="demo-pr-body demo-body-filled">
+            <div class="demo-md">
+              <p class="demo-md-h2">## Summary</p>
+              <p class="demo-md-p">Refactored the authentication flow to fix a session persistence bug affecting users who logged in across multiple devices. Improves error handling during token refresh failures.</p>
+              <p class="demo-md-h2">## Changes</p>
+              <ul class="demo-md-list">
+                <li><strong>Bug fixes:</strong>
+                  <ul>
+                    <li>Fixed session token not persisting after login on Safari and Firefox</li>
+                    <li>Resolved race condition in token refresh that caused silent logouts</li>
+                  </ul>
+                </li>
+                <li><strong>Refactors:</strong>
+                  <ul>
+                    <li>Extracted <code>refreshToken()</code> into a standalone utility for easier testing</li>
+                    <li>Simplified error propagation in <code>AuthContext</code></li>
+                  </ul>
+                </li>
+              </ul>
+              <p class="demo-md-h2">## Testing notes</p>
+              <ul class="demo-md-list">
+                <li>Verify login persists after browser restart on Chrome, Safari, Firefox</li>
+                <li>Test token refresh with an expired token (set expiry to 1s in test env)</li>
+                <li>Check that <code>AuthContext.test.js</code> covers the new <code>refreshToken()</code> path</li>
+              </ul>
+              <p class="demo-md-h2">## Affected areas</p>
+              <p class="demo-md-p demo-md-code"><code>src/auth/</code>, <code>src/context/AuthContext.jsx</code>, <code>src/utils/token.js</code></p>
+            </div>
+          </div>
+        </div>
+        <p class="demo-caption">Reviewers know exactly what changed, why it matters, and what to test.</p>
       </div>
     </div>
   </div>
@@ -494,6 +719,13 @@
         <span class="feat-text">
           <strong>No surprise API bills</strong>
           <span>Hard diff truncation at 500 lines with a visible warning — you know exactly what's being sent.</span>
+        </span>
+      </li>
+      <li>
+        <span class="icon">👀</span>
+        <span class="feat-text">
+          <strong>Reviewers get context before they open a file</strong>
+          <span>Every PR arrives with a clear description of what changed, why, and what to verify — before anyone reads a line of code.</span>
         </span>
       </li>
     </ul>

@@ -31919,29 +31919,36 @@ async function run() {
     }
 
     // Build prompt
-    const systemPrompt = `You are a senior software engineer writing pull request descriptions. Given a git diff, write a clear, concise PR description.
+    const systemPrompt = `You are a senior software engineer writing pull request descriptions for code review. Given a git diff, write a description that helps reviewers understand what changed, why it changed, and what to verify.
 
-Format your response as markdown with these sections:
+Rules:
+- Be specific. Don't restate commit messages — explain the intent behind the change.
+- Infer context from the diff. If auth files changed, mention session or security implications. If tests changed, note what behavior is now verified.
+- The Summary should answer "what problem does this solve?" in 2-3 sentences.
+- Testing notes should tell a reviewer exactly what to check — not generic advice.
+- Drop sections that don't apply. A chores-only PR doesn't need a "New features" section.
+- Never use filler phrases like "This PR updates..." or "Changes were made to..."
+- Write as if explaining to a teammate in a code review, not a manager in a status update.
+
+Format:
 ## Summary
-2-3 sentences describing what changed and why.
+[2-3 sentences: what changed and why]
 
 ## Changes
-Bullet list grouped by type. Use these headers only if relevant:
-- **Breaking changes:**
-- **New features:**
-- **Bug fixes:**
-- **Refactors:**
-- **Chores:**
+[Grouped bullets. Only include sections that apply:]
+- **Breaking changes:** (if any)
+- **New features:** (if any)
+- **Bug fixes:** (if any)
+- **Refactors:** (if any)
+- **Chores:** (if any)
 
 ## Testing notes
-What reviewers should verify. Infer from test file changes and diff context.
+[Specific, actionable things to verify. Reference actual file paths or function names from the diff.]
 
 ## Affected areas
-Which modules, directories, or components were touched.
+[List of modules/directories touched]
 
-${templateContent ? `\nUse this PR template as a guide for structure:\n${templateContent}` : ''}
-
-Keep it factual. Don't be verbose. Reviewers are busy.`;
+${templateContent ? `\nUse this PR template as a guide for structure:\n${templateContent}` : ''}`;
 
     const userPrompt = `PR title: ${pr.title}\n\nDiff:\n${diffText}`;
 
