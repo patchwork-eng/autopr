@@ -23,9 +23,13 @@ jobs:
         with:
           openai_key: ${{ secrets.OPENAI_KEY }}
           # license_key: ${{ secrets.AUTOPR_LICENSE_KEY }}  # Required for private repos
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-> **⚠️ Important:** The `pull-requests: write` permission is required. Without it, the Action cannot update your PR description and will fail.
+> **⚠️ Two things required:**
+> 1. The `pull-requests: write` permission must be set (shown above)
+> 2. `GITHUB_TOKEN` must be passed as an env var (shown above) — without it the Action cannot write back to your PR
 
 ---
 
@@ -90,6 +94,8 @@ You can provide a custom PR template to guide the output format:
 - uses: patchwork-eng/autopr@v1
   with:
     openai_key: ${{ secrets.OPENAI_KEY }}
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     template: .github/PULL_REQUEST_TEMPLATE.md
 ```
 

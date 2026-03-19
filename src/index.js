@@ -55,7 +55,12 @@ async function run() {
       return;
     }
 
-    const octokit = github.getOctokit(process.env.GITHUB_TOKEN);
+    const githubToken = process.env.GITHUB_TOKEN;
+    if (!githubToken) {
+      core.setFailed('AutoPR: GITHUB_TOKEN is not set. Add `env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` to your workflow step. See https://autopr.dev for setup instructions.');
+      return;
+    }
+    const octokit = github.getOctokit(githubToken);
 
     // Get the PR
     const { data: pr } = await octokit.rest.pulls.get({ owner, repo, pull_number: pullNumber });
